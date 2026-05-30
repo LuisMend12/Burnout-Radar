@@ -7,6 +7,7 @@ import { getReadinessColor, getReadinessLabel } from "@/lib/utils";
 interface MentalReadinessScoreProps {
   score: number;
   burnoutScore: number;
+  metrics?: { focus: number; calmness: number; fatigue: number };
 }
 
 const SIZE = 240;
@@ -52,7 +53,7 @@ function useAnimatedNumber(target: number, duration = 800) {
   return display;
 }
 
-export function MentalReadinessScore({ score, burnoutScore }: MentalReadinessScoreProps) {
+export function MentalReadinessScore({ score, burnoutScore, metrics }: MentalReadinessScoreProps) {
   const animatedScore = useAnimatedNumber(score);
   const color = getReadinessColor(score);
   const label = getReadinessLabel(score);
@@ -195,15 +196,31 @@ export function MentalReadinessScore({ score, burnoutScore }: MentalReadinessSco
       </div>
 
       {/* Mini breakdown row */}
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-5">
         {[
-          { label: "Focus", value: null, color: "#00f5ff" },
-          { label: "Calm", value: null, color: "#a855f7" },
-          { label: "Energy", value: null, color: "#22c55e" },
-        ].map(({ label, color }) => (
-          <div key={label} className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 4px ${color}` }} />
-            <span className="text-[10px] text-slate-500 tracking-wider">{label}</span>
+          { label: "Focus",  value: metrics?.focus   ?? null, color: "#00f5ff" },
+          { label: "Calm",   value: metrics?.calmness ?? null, color: "#a855f7" },
+          { label: "Energy", value: metrics ? Math.round(100 - metrics.fatigue) : null, color: "#22c55e" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 4px ${color}` }} />
+              <span className="text-[10px] text-slate-500 tracking-wider">{label}</span>
+              {value !== null && (
+                <span className="text-[10px] font-mono font-semibold" style={{ color }}>
+                  {Math.round(value)}
+                </span>
+              )}
+            </div>
+            <div className="w-16 h-0.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: color, boxShadow: `0 0 4px ${color}60` }}
+                initial={{ width: 0 }}
+                animate={{ width: value !== null ? `${Math.max(0, Math.min(100, value))}%` : "0%" }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+              />
+            </div>
           </div>
         ))}
       </div>

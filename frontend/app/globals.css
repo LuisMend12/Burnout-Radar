@@ -131,6 +131,11 @@ body::after {
 }
 
 /* Shimmer gradient for loading states */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
 .shimmer {
   background: linear-gradient(
     90deg,

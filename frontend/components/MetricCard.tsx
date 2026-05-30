@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, Battery, AlertTriangle, Target, Heart, Zap,
+  TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import { cn, getMetricStatus } from "@/lib/utils";
 import { GlowCard } from "./GlowCard";
@@ -81,6 +82,16 @@ const STATUS_COLOR: Record<string, string> = {
   High:     "#ff4757",
 };
 
+function getTrend(sparkline: number[], invertStatus: boolean): "improving" | "worsening" | "stable" {
+  if (sparkline.length < 4) return "stable";
+  const recent = sparkline.slice(-3).reduce((a, b) => a + b, 0) / 3;
+  const earlier = sparkline.slice(-6, -3).reduce((a, b) => a + b, 0) / Math.min(3, sparkline.length - 3);
+  const delta = recent - earlier;
+  if (Math.abs(delta) < 2) return "stable";
+  const increasing = delta > 0;
+  return (invertStatus ? !increasing : increasing) ? "improving" : "worsening";
+}
+
 function useAnimatedNumber(target: number): number {
   const [display, setDisplay] = useState(target);
   const prevRef = useRef(target);
@@ -122,7 +133,9 @@ export function MetricCard({ metricKey, value, delay = 0, sparkline = [] }: Metr
   const statusColor = STATUS_COLOR[status] ?? "#94a3b8";
 
   const isInverted = cfg.invertStatus;
-  const progressValue = isInverted ? (100 - value) : value;
+  const trend = getTrend(sparkline, isInverted);
+  const TrendIcon = trend === "improving" ? TrendingUp : trend === "worsening" ? TrendingDown : Minus;
+  const trendColor = trend === "improving" ? "#22c55e" : trend === "worsening" ? "#ff4757" : "#475569";
 
   return (
     <GlowCard variant={cfg.glowVariant} delay={delay} className="p-5 flex flex-col gap-4 h-full min-h-[160px]">
@@ -139,15 +152,18 @@ export function MetricCard({ metricKey, value, delay = 0, sparkline = [] }: Metr
             <div className="text-[11px] text-slate-500 uppercase tracking-widest">{cfg.label}</div>
           </div>
         </div>
-        <div
-          className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-          style={{
-            color: statusColor,
-            background: `${statusColor}18`,
-            border: `1px solid ${statusColor}30`,
-          }}
-        >
-          {status}
+        <div className="flex items-center gap-1.5">
+          <TrendIcon className="w-3 h-3" style={{ color: trendColor }} />
+          <div
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+            style={{
+              color: statusColor,
+              background: `${statusColor}18`,
+              border: `1px solid ${statusColor}30`,
+            }}
+          >
+            {status}
+          </div>
         </div>
       </div>
 
@@ -180,36 +196,47 @@ export function MetricCard({ metricKey, value, delay = 0, sparkline = [] }: Metr
 
         {/* Sparkline */}
         {sparkline.length > 1 && (
-          <MiniSparkline data={sparkline} color={cfg.color} />
+          <MiniSparkline data={sparkline} color={cfg.color} metricKey={metricKey} />
         )}
       </div>
     </GlowCard>
   );
 }
 
-function MiniSparkline({ data, color }: { data: number[]; color: string }) {
-  const height = 24;
+function MiniSparkline({ data, color, metricKey }: { data: number[]; color: string; metricKey: string }) {
+  const height = 28;
   const width = 100;
   const min = Math.min(...data);
   const max = Math.max(...data);
   const range = max - min || 1;
+  const gradId = `spark-${metricKey}`;
 
-  const points = data.map((v, i) => {
+  const pts = data.map((v, i) => {
     const x = (i / (data.length - 1)) * width;
-    const y = height - ((v - min) / range) * height;
+    const y = height - ((v - min) / range) * (height - 2) - 1;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
+  });
+
+  const linePoints = pts.join(" ");
+  const areaPoints = `0,${height} ${pts[0]} ${linePoints} ${pts[pts.length - 1].split(",")[0]},${height}`;
 
   return (
     <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0"   />
+        </linearGradient>
+      </defs>
+      <polygon points={areaPoints} fill={`url(#${gradId})`} />
       <polyline
-        points={points}
+        points={linePoints}
         fill="none"
         stroke={color}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        opacity="0.6"
+        opacity="0.75"
       />
     </svg>
   );

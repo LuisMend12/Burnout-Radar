@@ -31,6 +31,7 @@ export default function Dashboard() {
           <MentalReadinessScore
             score={metrics.mental_readiness}
             burnoutScore={metrics.burnout_score}
+            metrics={metrics}
           />
         </motion.section>
 

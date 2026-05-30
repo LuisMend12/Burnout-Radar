@@ -14,10 +14,11 @@ interface TimelineViewProps {
 }
 
 const SERIES = [
-  { key: "stress",  label: "Stress",  color: "#ff4757", gradId: "grad-stress" },
-  { key: "focus",   label: "Focus",   color: "#00f5ff", gradId: "grad-focus"  },
-  { key: "fatigue", label: "Fatigue", color: "#a855f7", gradId: "grad-fatigue"},
-  { key: "calmness",label: "Calmness",color: "#22c55e", gradId: "grad-calm"   },
+  { key: "stress",  label: "Stress",  color: "#ff4757", gradId: "grad-stress"  },
+  { key: "focus",   label: "Focus",   color: "#00f5ff", gradId: "grad-focus"   },
+  { key: "fatigue", label: "Fatigue", color: "#a855f7", gradId: "grad-fatigue" },
+  { key: "calmness",label: "Calmness",color: "#22c55e", gradId: "grad-calm"    },
+  { key: "burnout", label: "Burnout", color: "#f97316", gradId: "grad-burnout" },
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
