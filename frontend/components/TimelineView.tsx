@@ -67,7 +67,7 @@ export function TimelineView({ data }: TimelineViewProps) {
           </div>
           <div>
             <h2 className="text-sm font-semibold text-slate-200 tracking-wide">Neural Timeline</h2>
-            <p className="text-[10px] text-slate-500">Live 60-second biomarker history</p>
+            <p className="text-[10px] text-slate-500">Up to 1-hour biomarker history</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-slate-600">

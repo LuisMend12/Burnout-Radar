@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Metrics, TimelinePoint } from "@/types";
 import { generateDefaultMetrics, computeBurnoutScore, getBurnoutLevel, formatTime } from "@/lib/utils";
+import { fetchTimeline } from "@/lib/api";
 
-const TIMELINE_MAX = 40;
+const TIMELINE_MAX = 90; // 60 historical + 30 live points
 
 function driftValue(v: number, speed = 1.2, min = 8, max = 92): number {
   return Math.max(min, Math.min(max, v + (Math.random() - 0.5) * speed * 2));
@@ -120,15 +121,21 @@ export function useMetrics() {
     };
   }, [updateMetrics]);
 
-  // Seed the timeline with initial points
+  // Seed the timeline with real historical data (falls back to simulated if unavailable)
   useEffect(() => {
-    const initial = generateDefaultMetrics();
-    const seed: TimelinePoint[] = Array.from({ length: 10 }, (_, i) => {
-      const t = simulateMetrics(initial);
-      const d = new Date(Date.now() - (9 - i) * 2000);
-      return { ...metricsToTimelinePoint(t), time: formatTime(d) };
+    fetchTimeline(60).then((history) => {
+      if (history.length > 0) {
+        setTimeline(history);
+      } else {
+        const initial = generateDefaultMetrics();
+        const seed: TimelinePoint[] = Array.from({ length: 10 }, (_, i) => {
+          const t = simulateMetrics(initial);
+          const d = new Date(Date.now() - (9 - i) * 2000);
+          return { ...metricsToTimelinePoint(t), time: formatTime(d) };
+        });
+        setTimeline(seed);
+      }
     });
-    setTimeline(seed);
   }, []);
 
   const triggerAnalysis = useCallback((newMetrics?: Metrics) => {

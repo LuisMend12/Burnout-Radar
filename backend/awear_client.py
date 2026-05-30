@@ -179,6 +179,95 @@ def _bands_to_eeg_frame(bands: Dict[str, float]) -> Dict:
     }
 
 
+def _fetch_records_window(participant: str, start: str, end: str, limit: int = 500) -> List[Dict]:
+    try:
+        r = requests.get(
+            f"{_BASE_URL}/members/{participant}/data",
+            headers=_headers(),
+            params={"start": start, "end": end, "limit": limit, "sort": "asc"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json().get("data", [])
+    except Exception:
+        return []
+
+
+def get_historical_timeline(minutes: int = 60, bucket_minutes: int = 2) -> List[Dict]:
+    """
+    Fetch up to `minutes` of EEG history, aggregate into `bucket_minutes` buckets,
+    and return a list of timeline points with derived metrics.
+    """
+    participant = _get_participant()
+    if not participant:
+        return []
+
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(minutes=minutes)
+
+    # Fetch in pages of 500 to cover up to 60 min (3600 records at 1/s)
+    all_records: List[Dict] = []
+    page_size = 500
+    offset = 0
+    while True:
+        try:
+            r = requests.get(
+                f"{_BASE_URL}/members/{participant}/data",
+                headers=_headers(),
+                params={
+                    "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end":   now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "limit": page_size,
+                    "offset": offset,
+                    "sort": "asc",
+                },
+                timeout=10,
+            )
+            r.raise_for_status()
+            page = r.json().get("data", [])
+            all_records.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+            if offset >= 3600:  # cap at 3600 records
+                break
+        except Exception:
+            break
+
+    if not all_records:
+        return []
+
+    # Bucket records by `bucket_minutes` windows
+    bucket_secs = bucket_minutes * 60
+    buckets: Dict[int, List[Dict]] = {}
+    for rec in all_records:
+        ts_str = rec.get("timestamp", "")
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            epoch = int(ts.timestamp())
+            bucket_key = (epoch // bucket_secs) * bucket_secs
+            buckets.setdefault(bucket_key, []).append(rec)
+        except Exception:
+            continue
+
+    timeline = []
+    for bucket_key in sorted(buckets.keys()):
+        recs = buckets[bucket_key]
+        bands = _waveforms_to_bands(recs)
+        m = _bands_to_metrics(bands)
+        label_dt = datetime.fromtimestamp(bucket_key, tz=timezone.utc).astimezone()
+        timeline.append({
+            "time":    label_dt.strftime("%H:%M"),
+            "stress":  round(m["stress"]),
+            "focus":   round(m["focus"]),
+            "fatigue": round(m["fatigue"]),
+            "calmness": round(m["calmness"]),
+            "burnout": round(m["burnout_score"]),
+        })
+
+    return timeline
+
+
 def _fetch_recent_records(participant: str, n: int = 10) -> List[Dict]:
     now = datetime.now(timezone.utc)
     start = (now - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")

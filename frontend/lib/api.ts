@@ -1,4 +1,4 @@
-import type { Metrics, Recommendation, VoiceAnalysisResult } from "@/types";
+import type { Metrics, Recommendation, VoiceAnalysisResult, TimelinePoint } from "@/types";
 import { generateDefaultMetrics } from "./utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -23,6 +23,14 @@ export async function fetchRecommendations(): Promise<Recommendation[]> {
     { recommendations: [] }
   );
   return data.recommendations;
+}
+
+export async function fetchTimeline(minutes = 60): Promise<TimelinePoint[]> {
+  const data = await fetchWithFallback<{ timeline: TimelinePoint[] }>(
+    `${API_BASE}/timeline?minutes=${minutes}`,
+    { timeline: [] }
+  );
+  return data.timeline;
 }
 
 export async function analyzeVoice(audioBlob?: Blob): Promise<VoiceAnalysisResult | null> {

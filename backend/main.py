@@ -99,6 +99,16 @@ async def get_metrics():
     return _get_metrics()
 
 
+@app.get("/timeline")
+async def get_timeline(minutes: int = 60):
+    """Historical timeline bucketed into 2-minute intervals."""
+    if _api_key:
+        data = awear_client.get_historical_timeline(minutes=minutes, bucket_minutes=2)
+        if data:
+            return {"timeline": data, "source": "awear_api"}
+    return {"timeline": [], "source": "mock"}
+
+
 @app.get("/recommendations")
 async def get_recommendations_endpoint():
     recs = get_recommendations(_current_metrics)
