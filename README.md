@@ -1,6 +1,6 @@
 # Burnout Radar
 
-Real-time mental wellness dashboard powered by live EEG data from the AWEAR B2B API, combining brainwave analysis and voice biomarker detection.
+Real-time mental wellness dashboard powered by live EEG data from the AWEAR B2B API, combining brainwave analysis, spectral signal processing, and voice biomarker detection.
 
 ## Data Source
 
@@ -14,6 +14,8 @@ API_KEY=awr_sk_your_key_here
 
 If no key is present the backend falls back to simulated data automatically.
 
+---
+
 ## Quick Start
 
 ### Frontend (Next.js)
@@ -21,24 +23,20 @@ If no key is present the backend falls back to simulated data automatically.
 ```bash
 cd frontend
 npm install
-npm run dev        # dev server
+npm run dev        # dev server → http://localhost:3000
 npm run build      # production build
 npm start          # serve production build
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
-
-### Backend (FastAPI)
+### Backend (FastAPI) — optional
 
 ```bash
 cd backend
 pip install -r requirements.txt
-python main.py
+python main.py     # → http://localhost:8000
 ```
 
-Backend runs at [http://localhost:8000](http://localhost:8000)
-
-The backend automatically reads `API_KEY` from the root `.env` file on startup and switches to live AWEAR data. The `/` endpoint reports `"data_source": "awear_api"` when live data is active.
+The backend automatically reads `API_KEY` from the root `.env` file and switches to live AWEAR data. The `/` endpoint reports `"data_source": "awear_api"` when live data is active. Without a running backend the frontend operates fully in simulation mode.
 
 ---
 
@@ -63,23 +61,23 @@ Burnout-Radar/
 │   │   ├── layout.tsx         # Root layout + fonts
 │   │   └── page.tsx           # Main dashboard
 │   ├── components/
-│   │   ├── Header.tsx
-│   │   ├── MentalReadinessScore.tsx
-│   │   ├── VoiceRecorder.tsx
-│   │   ├── EEGPanel.tsx
-│   │   ├── MetricCard.tsx
-│   │   ├── MetricsDashboard.tsx
-│   │   ├── TimelineView.tsx
-│   │   ├── RecommendationEngine.tsx
-│   │   └── GlowCard.tsx
+│   │   ├── Header.tsx                 # Sticky nav with live status pills
+│   │   ├── MentalReadinessScore.tsx   # Gauge + Focus/Calm/Energy breakdown
+│   │   ├── VoiceRecorder.tsx          # Mic capture + waveform canvas
+│   │   ├── EEGPanel.tsx               # Brainwave chart, power ratios, spectral features
+│   │   ├── MetricCard.tsx             # Metric tile with trend indicator + sparkline
+│   │   ├── MetricsDashboard.tsx       # 4-card metrics grid
+│   │   ├── TimelineView.tsx           # Full-session area chart (oldest → live)
+│   │   ├── RecommendationEngine.tsx   # AI intervention cards
+│   │   └── GlowCard.tsx              # Glassmorphism card wrapper
 │   ├── hooks/
-│   │   ├── useMetrics.ts      # WebSocket metrics stream
-│   │   ├── useEEGStream.ts    # EEG brainwave data stream
+│   │   ├── useMetrics.ts      # WebSocket metrics stream + session-anchored timeline
+│   │   ├── useEEGStream.ts    # EEG stream + band powers + power ratios + spectral features
 │   │   └── useVoiceRecorder.ts
 │   ├── lib/
 │   │   ├── api.ts
 │   │   └── utils.ts
-│   └── types/index.ts
+│   └── types/index.ts         # Metrics, EEGDataPoint, BandPowers, PowerRatios, SpectralFeatures
 │
 └── backend/                   # FastAPI
     ├── main.py                # All endpoints
@@ -143,24 +141,91 @@ Results are smoothed with an exponential moving average (α=0.3) and cached for 
 
 ---
 
-## Voice Analysis Pipeline
+## EEG Signal Processing (Frontend)
 
-The Voice Analysis panel records audio from the microphone and sends it to the backend for processing. Here is the full data flow:
+The frontend computes additional signal features from the 80-sample rolling buffer every 100 ms.
+
+### Band Powers
+
+RMS (root mean square) power for each band extracted from the buffer:
+
+```
+P_band = sqrt( mean(x²) )   over the rolling 80-sample window
+```
+
+### Power Ratios
+
+Standard neurofeedback ratios derived from band powers:
+
+| Ratio | Formula | Interpretation |
+|-------|---------|----------------|
+| θ/β | theta / beta | High = drowsy / inattentive |
+| α/β | alpha / beta | High = relaxed / low arousal |
+| β/(α+θ) | beta / (alpha + theta) | High = cognitively engaged |
+| θ/α | theta / alpha | High = mental fatigue |
+
+### Spectral Features
+
+| Feature | Method | Interpretation |
+|---------|--------|---------------|
+| Spectral Entropy | Normalized Shannon entropy over band power distribution | 0 = one band dominates; 1 = all bands equal |
+| Mean Frequency | Power-weighted centroid: `Σ(fᵢ·Pᵢ) / Σ(Pᵢ)` | Overall frequency balance in Hz |
+| SEF 95% | Lowest band whose cumulative power exceeds 95% of total | Spectral edge frequency |
+| Decaying Exponent β | OLS slope of log(P) vs log(f) across all bands; β = −slope | Aperiodic 1/fᵝ component of PSD |
+
+---
+
+## Neural Timeline
+
+The timeline retains the full session (up to 1 hour / 3600 points at 2 s/tick). All timestamps are anchored to the session start time so data can be aligned and labeled against real-world events.
+
+- **Oldest recorded point → current live time** always visible without windowing
+- **Session span** displayed in the header (`HH:MM:SS – HH:MM:SS`)
+- **Live point count** updates every 2 seconds
+- Five series rendered: Stress, Focus, Fatigue, Calmness, Burnout
+
+---
+
+## Metric Cards
+
+Each metric card shows:
+- **Animated value** with eased counter
+- **Status badge** (Low / Moderate / High)
+- **Trend indicator** — compares last 3 samples vs previous 3; shows ↑ / ↓ / — colored green (improving) or red (worsening), correctly inverted for adverse metrics (stress, fatigue, burnout)
+- **Sparkline** with gradient area fill
+
+---
+
+## Mental Readiness Score
+
+The central gauge displays the composite Mental Readiness Index (0–100). Below the gauge, a live breakdown row shows:
+
+| Label | Source | Color |
+|-------|--------|-------|
+| Focus | `metrics.focus` | Cyan |
+| Calm | `metrics.calmness` | Purple |
+| Energy | `100 − metrics.fatigue` | Green |
+
+Each entry shows the current percentage and an animated mini progress bar.
+
+---
+
+## Voice Analysis Pipeline
 
 ### 1. Microphone capture (`useVoiceRecorder.ts`)
 
 When the user presses **Record**:
 
-1. **Permission request** — `getUserMedia` asks the browser for mic access with echo cancellation and noise suppression at 44,100 Hz. Permission denied errors surface here.
-2. **Web Audio API (visualizer only)** — an `AnalyserNode` with `fftSize = 2048` is connected to the mic stream. This is used exclusively to draw the live waveform on the canvas; it does not record anything.
+1. **Permission request** — `getUserMedia` asks the browser for mic access with echo cancellation and noise suppression at 44,100 Hz.
+2. **Web Audio API (visualizer only)** — an `AnalyserNode` with `fftSize = 2048` drives the live waveform canvas; it does not record anything.
 3. **MediaRecorder (actual capture)** — records the stream in `audio/webm;codecs=opus` format, firing `ondataavailable` every 100 ms to accumulate audio chunks.
-4. **Timer** — counts elapsed seconds and hard-stops the recording at 60 seconds.
+4. **Timer** — counts elapsed seconds and hard-stops at 60 seconds.
 
-When the user presses **Stop**, all 100 ms chunks are merged into a single `audio/webm` `Blob`.
+When the user presses **Stop**, all chunks are merged into a single `audio/webm` Blob.
 
 ### 2. Upload & analysis (`VoiceRecorder.tsx` → `/analyze_voice`)
 
-Pressing **Analyze** POSTs the `Blob` to `POST /analyze_voice` on the backend. The backend returns acoustic stress biomarkers:
+Pressing **Analyze** POSTs the Blob to `POST /analyze_voice`. The backend returns acoustic stress biomarkers:
 
 | Field | Description |
 |-------|-------------|
@@ -172,20 +237,20 @@ Pressing **Analyze** POSTs the `Blob` to `POST /analyze_voice` on the backend. T
 | `shimmer_percent` | Cycle-to-cycle amplitude variation |
 | `confidence_score` | Model confidence (0–1) |
 
-The returned `metrics` (stress, focus, fatigue, calmness) are injected into the dashboard, overriding the current EEG-derived values.
+The returned `metrics` are injected into the dashboard, overriding the current EEG-derived values.
 
 ### 3. Cleanup
 
-After recording stops, the mic track is released, the `AudioContext` is closed, and the analyser node is cleared — stopping the waveform animation.
+After recording stops, the mic track is released, the `AudioContext` is closed, and the analyser node is cleared.
 
 ### Known limitations
 
 | Issue | Detail |
 |-------|--------|
 | `isAnalyzing` never activates | The loading state lives in the hook but the `analyzeVoice` call is made outside it, so the spinner never shows |
-| Voice not wired into EEG pipeline | The backend's `/analyze_voice` endpoint currently returns values independent of the EEG metrics; voice and EEG scores are not fused |
+| Voice not fused with EEG | `/analyze_voice` returns values independent of EEG metrics; scores are not fused |
 | No playback | The recorded blob is not played back to the user |
-| Microphone permission | Requires browser permission. If denied, click the lock icon in the address bar → allow Microphone, then refresh |
+| Microphone permission | If denied, click the lock icon in the address bar → allow Microphone, then refresh |
 
 ---
 
