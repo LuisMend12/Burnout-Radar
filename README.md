@@ -143,6 +143,52 @@ Results are smoothed with an exponential moving average (α=0.3) and cached for 
 
 ---
 
+## Voice Analysis Pipeline
+
+The Voice Analysis panel records audio from the microphone and sends it to the backend for processing. Here is the full data flow:
+
+### 1. Microphone capture (`useVoiceRecorder.ts`)
+
+When the user presses **Record**:
+
+1. **Permission request** — `getUserMedia` asks the browser for mic access with echo cancellation and noise suppression at 44,100 Hz. Permission denied errors surface here.
+2. **Web Audio API (visualizer only)** — an `AnalyserNode` with `fftSize = 2048` is connected to the mic stream. This is used exclusively to draw the live waveform on the canvas; it does not record anything.
+3. **MediaRecorder (actual capture)** — records the stream in `audio/webm;codecs=opus` format, firing `ondataavailable` every 100 ms to accumulate audio chunks.
+4. **Timer** — counts elapsed seconds and hard-stops the recording at 60 seconds.
+
+When the user presses **Stop**, all 100 ms chunks are merged into a single `audio/webm` `Blob`.
+
+### 2. Upload & analysis (`VoiceRecorder.tsx` → `/analyze_voice`)
+
+Pressing **Analyze** POSTs the `Blob` to `POST /analyze_voice` on the backend. The backend returns acoustic stress biomarkers:
+
+| Field | Description |
+|-------|-------------|
+| `pitch_variation_hz` | Pitch range in Hz |
+| `speech_rate_wpm` | Words per minute estimate |
+| `voice_energy_db` | Signal energy in dB |
+| `tremor_index` | Voice tremor score (0–1) |
+| `jitter_percent` | Cycle-to-cycle pitch variation |
+| `shimmer_percent` | Cycle-to-cycle amplitude variation |
+| `confidence_score` | Model confidence (0–1) |
+
+The returned `metrics` (stress, focus, fatigue, calmness) are injected into the dashboard, overriding the current EEG-derived values.
+
+### 3. Cleanup
+
+After recording stops, the mic track is released, the `AudioContext` is closed, and the analyser node is cleared — stopping the waveform animation.
+
+### Known limitations
+
+| Issue | Detail |
+|-------|--------|
+| `isAnalyzing` never activates | The loading state lives in the hook but the `analyzeVoice` call is made outside it, so the spinner never shows |
+| Voice not wired into EEG pipeline | The backend's `/analyze_voice` endpoint currently returns values independent of the EEG metrics; voice and EEG scores are not fused |
+| No playback | The recorded blob is not played back to the user |
+| Microphone permission | Requires browser permission. If denied, click the lock icon in the address bar → allow Microphone, then refresh |
+
+---
+
 ## Tech Stack
 
 - **Frontend**: Next.js 14, React 18, TypeScript, Tailwind CSS
