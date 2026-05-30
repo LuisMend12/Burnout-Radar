@@ -49,12 +49,13 @@ interface RecommendationEngineProps {
 export function RecommendationEngine({ metrics }: RecommendationEngineProps) {
   const [recs, setRecs] = useState<Recommendation[]>(DEMO_RECS);
   const [activeRec, setActiveRec] = useState<string | null>(null);
+  const [started, setStarted] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const fresh = await fetchRecommendations();
-    if (fresh.length > 0) setRecs(fresh);
-    else {
-      // Generate client-side recommendations
+    if (fresh.length > 0) {
+      setRecs(fresh);
+    } else {
       const clientRecs: Recommendation[] = [];
       if (metrics.stress > 65) clientRecs.push(DEMO_RECS[0]);
       if (metrics.focus < 50) clientRecs.push(DEMO_RECS[1]);
@@ -71,10 +72,12 @@ export function RecommendationEngine({ metrics }: RecommendationEngineProps) {
     }
   }, [metrics]);
 
+  // Refresh on mount and every 30 seconds
   useEffect(() => {
     refresh();
-    // Refresh recommendations when metrics change significantly
-  }, [metrics.burnout_score > 65, metrics.stress > 65]); // eslint-disable-line react-hooks/exhaustive-deps
+    const interval = setInterval(refresh, 30_000);
+    return () => clearInterval(interval);
+  }, [refresh]);
 
   return (
     <GlowCard variant="purple" delay={0.4} className="p-5 flex flex-col gap-4 h-full">
@@ -142,14 +145,19 @@ export function RecommendationEngine({ metrics }: RecommendationEngineProps) {
                         >
                           <span className="text-[10px] text-slate-600">Duration: {rec.duration}</span>
                           <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setStarted(rec.title);
+                              setTimeout(() => setStarted(null), 3000);
+                            }}
                             className="text-[11px] font-semibold px-3 py-1 rounded-lg transition-all"
                             style={{
-                              color: cfg.color,
-                              background: `${cfg.color}18`,
-                              border: `1px solid ${cfg.color}30`,
+                              color: started === rec.title ? "#22c55e" : cfg.color,
+                              background: started === rec.title ? "#22c55e18" : `${cfg.color}18`,
+                              border: `1px solid ${started === rec.title ? "#22c55e30" : `${cfg.color}30`}`,
                             }}
                           >
-                            Start Now
+                            {started === rec.title ? "Started!" : "Start Now"}
                           </button>
                         </motion.div>
                       )}
