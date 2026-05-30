@@ -93,7 +93,15 @@ export function useVoiceRecorder(): VoiceRecorderState {
         }
       }, 1000);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Microphone access denied";
+      const name = err instanceof DOMException ? err.name : "";
+      const msg =
+        name === "NotAllowedError" || name === "PermissionDeniedError"
+          ? "Microphone access denied. Click the lock icon in your browser's address bar and allow microphone access, then try again."
+          : name === "NotFoundError"
+          ? "No microphone found. Please connect a microphone and try again."
+          : err instanceof Error
+          ? err.message
+          : "Microphone access denied";
       setError(msg);
       setIsRecording(false);
     }
