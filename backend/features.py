@@ -247,6 +247,46 @@ def sliding_features(sig: np.ndarray, cfg: Config) -> Dict:
     }
 
 
+def last_window_psd(sig: np.ndarray, cfg: Config) -> Optional[Dict]:
+    """Return PSD decomposition for the most recent window — for spectrum plotting."""
+    win_n = int(cfg.win_sec * cfg.fs)
+    if len(sig) < win_n:
+        return None
+    window = sig[-win_n:]
+    freqs_full, psd_full = _psd(window, cfg.fs)
+
+    mask = (freqs_full >= cfg.fit_lo) & (freqs_full <= cfg.fit_hi) & (freqs_full > 0) & (psd_full > 0)
+    f = freqs_full[mask]
+    p = psd_full[mask]
+
+    exponent, offset, r2 = float("nan"), float("nan"), 0.0
+    peaks: List[Dict] = []
+
+    if _HAS_SPECPARAM:
+        try:
+            fm = SpectralModel(peak_width_limits=[1, 8], max_n_peaks=6, aperiodic_mode="fixed", verbose=False)
+            fm.fit(freqs_full, psd_full, [cfg.fit_lo, cfg.fit_hi])
+            exponent = float(fm.aperiodic_params_[1])
+            offset   = float(fm.aperiodic_params_[0])
+            r2       = float(fm.r_squared_)
+            peaks    = _peaks_from_specparam(fm)
+        except Exception:
+            exponent, offset, r2 = _ols_exponent(freqs_full, psd_full, cfg.fit_lo, cfg.fit_hi)
+            peaks = _peaks_from_ols(freqs_full, psd_full, exponent, offset, cfg.fit_lo, cfg.fit_hi)
+    else:
+        exponent, offset, r2 = _ols_exponent(freqs_full, psd_full, cfg.fit_lo, cfg.fit_hi)
+        peaks = _peaks_from_ols(freqs_full, psd_full, exponent, offset, cfg.fit_lo, cfg.fit_hi)
+
+    return {
+        "freqs":    [round(float(v), 3) for v in f],
+        "log_psd":  [round(float(v), 4) for v in np.log10(p)],
+        "exponent": round(float(exponent), 4) if np.isfinite(exponent) else None,
+        "offset":   round(float(offset),   4) if np.isfinite(offset)   else None,
+        "peaks":    peaks,
+        "r2":       round(float(r2), 4),
+    }
+
+
 def smooth(arr: np.ndarray, n: int = 7) -> np.ndarray:
     """Rolling-median smoothing with window size n."""
     if len(arr) == 0:

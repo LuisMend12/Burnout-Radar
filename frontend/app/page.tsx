@@ -8,6 +8,7 @@ import { EEGPanel } from "@/components/EEGPanel";
 import { MetricsDashboard } from "@/components/MetricsDashboard";
 import { TimelineView } from "@/components/TimelineView";
 import { RecommendationEngine } from "@/components/RecommendationEngine";
+import { AperiodicPanel } from "@/components/AperiodicPanel";
 import { useMetrics } from "@/hooks/useMetrics";
 import { useEEGStream } from "@/hooks/useEEGStream";
 import type { Metrics } from "@/types";
@@ -51,7 +52,12 @@ export default function Dashboard() {
           />
         </section>
 
-        {/* Row 2: Metrics Dashboard */}
+        {/* Row 2: Aperiodic Exponent — PSD decomposition chart */}
+        <section>
+          <AperiodicPanel />
+        </section>
+
+        {/* Row 3: Metrics Dashboard */}
         <section>
           <MetricsDashboard metrics={metrics} timeline={timeline} />
         </section>

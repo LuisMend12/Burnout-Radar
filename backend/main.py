@@ -16,6 +16,7 @@ from mock_data import (
     generate_eeg_data,
     get_recommendations,
     get_streaming_metrics,
+    generate_mock_psd,
 )
 import awear_client
 
@@ -51,7 +52,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000",
                    "http://localhost:3001", "http://127.0.0.1:3001",
-                   "http://localhost:3002", "http://127.0.0.1:3002"],
+                   "http://localhost:3002", "http://127.0.0.1:3002",
+                   "http://localhost:3003", "http://127.0.0.1:3003"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -246,6 +248,68 @@ async def live_aperiodic(
             "highpass_hz": cfg.highpass_hz, "notch_hz": cfg.notch_hz,
             "mains_interp": cfg.mains_interp,
         },
+    }
+
+
+@app.get("/live/psd")
+async def live_psd(
+    lookback: float = Query(6.0, description="Minutes of EEG history to pull"),
+    participant: Optional[str] = Query(None),
+):
+    """
+    PSD decomposition for the most recent 4-second window.
+    Returns raw spectrum + aperiodic fit + periodic peaks for plotting.
+    """
+    def _mock_response():
+        mock = generate_mock_psd()
+        return {
+            "participant":  "mock",
+            "as_of":        dt.datetime.now(dt.timezone.utc).isoformat(),
+            "lag_seconds":  0.0,
+            **mock,
+        }
+
+    if not _api_key:
+        return _mock_response()
+    if not _HAS_FEATURES:
+        return {"error": "spectral features unavailable — install scipy"}
+
+    pid, rows = awear_client.get_raw_records(lookback_minutes=lookback, participant=participant)
+    if pid is None or not rows:
+        return _mock_response()
+
+    cfg = _F.Config()
+    runs = _F.contiguous_runs(rows)
+    run = runs[-1] if runs and len(runs[-1]) >= cfg.win_sec else rows
+
+    sig, _ = _F.rows_to_signal(run, cfg.fs)
+    sig = _F.preprocess(sig, cfg)
+
+    psd_data = _F.last_window_psd(sig, cfg)
+    if psd_data is None:
+        return {"participant": pid, "error": "not enough signal for one window"}
+
+    # Smoothed exponent from the full sliding window pass
+    sl = _F.sliding_features(sig, cfg)
+    exp_s = float(_F.smooth(sl["exponent"], 7)[-1]) if sl["exponent"].size else float("nan")
+    r2_last = float(sl["r2"][-1]) if sl["r2"].size else 0.0
+    rel_last = float(sl["bands"]["rel_alpha"][-1]) * 100.0 if sl["bands"]["rel_alpha"].size else 0.0
+    exp_raw = float(sl["exponent"][-1]) if sl["exponent"].size else float("nan")
+
+    last_row = rows[-1]
+    as_of = dt.datetime.fromisoformat(last_row["timestamp"].replace("Z", "+00:00"))
+    lag = (dt.datetime.now(dt.timezone.utc) - as_of).total_seconds()
+
+    return {
+        "participant":        pid,
+        "as_of":              as_of.isoformat(),
+        "lag_seconds":        round(lag, 1),
+        "exponent_smoothed":  round(exp_s, 3) if np.isfinite(exp_s) else None,
+        "brain_state_score":  _aperiodic_score(exp_s) if np.isfinite(exp_s) else 0,
+        "relative_alpha_pct": round(rel_last, 1),
+        "r2":                 round(r2_last, 3),
+        "quality":            bool(r2_last >= 0.8 and np.isfinite(exp_raw) and 0.1 < exp_raw < 2.5),
+        **psd_data,
     }
 
 
