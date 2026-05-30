@@ -129,8 +129,9 @@ def _rel_alpha(freqs: np.ndarray, psd: np.ndarray) -> float:
     """Relative alpha (8–12 Hz) as a fraction of 1–40 Hz power."""
     total_m = (freqs >= 1) & (freqs <= 40)
     alpha_m = (freqs >= 8) & (freqs <= 12)
-    total = float(np.trapz(psd[total_m], freqs[total_m])) if total_m.any() else 0.0
-    alpha = float(np.trapz(psd[alpha_m], freqs[alpha_m])) if alpha_m.any() else 0.0
+    _trapz = getattr(np, "trapezoid", None) or np.trapz  # numpy 2.0 renamed trapz → trapezoid
+    total = float(_trapz(psd[total_m], freqs[total_m])) if total_m.any() else 0.0
+    alpha = float(_trapz(psd[alpha_m], freqs[alpha_m])) if alpha_m.any() else 0.0
     return alpha / total if total > 1e-12 else 0.0
 
 
