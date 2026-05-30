@@ -82,6 +82,7 @@ Burnout-Radar/
 └── backend/                   # FastAPI
     ├── main.py                # All endpoints
     ├── awear_client.py        # AWEAR API client + FFT band power computation
+    ├── features.py            # Aperiodic (1/f) extraction: filtering, specparam, sliding windows
     ├── mock_data.py           # Fallback simulation generators
     ├── models.py              # Pydantic schemas
     └── requirements.txt
@@ -93,11 +94,46 @@ Burnout-Radar/
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/` | Service info and data source mode |
+| GET | `/health` | Health check |
 | GET | `/metrics` | Current wellness metrics snapshot |
-| POST | `/analyze_voice` | Upload audio, returns stress biomarkers |
+| GET | `/members` | List AWEAR participants registered to the API key |
+| GET | `/live` | Aperiodic (1/f) features for the active participant (see below) |
+| GET | `/timeline` | Historical timeline bucketed into 2-minute intervals |
+| POST | `/analyze_voice` | Upload audio, returns acoustic stress biomarkers |
 | GET | `/recommendations` | AI-generated wellness suggestions |
 | WS | `/eeg_stream` | Live EEG brainwave data at 10 Hz |
 | WS | `/metrics_stream` | Live metrics updates every 2 s |
+
+### `GET /live`
+
+Query params:
+- `lookback` — minutes of EEG history to pull (default `6`)
+- `participant` — AWEAR participant ID; auto-picks the active member if omitted
+
+```jsonc
+{
+  "participant": "P-T8QCYK",
+  "device": "AWEAR-E22AC805",
+  "fs": 256,
+  "as_of": "2026-05-30T20:11:04+00:00",   // timestamp of most recent EEG sample
+  "lag_seconds": 183.0,                    // AWEAR cloud is typically ~3 min behind
+  "current": {
+    "exponent": 1.898,                     // latest raw 1/f exponent
+    "exponent_smoothed": 1.899,            // rolling-median smoothed — use this for display
+    "relative_alpha_pct": 7.8,             // 8–12 Hz share of 1–40 Hz power (relaxation)
+    "alpha_peak_pw": 21.451,               // periodic alpha height above 1/f floor (null if absent)
+    "r2": 0.597,                           // specparam fit quality (0–1)
+    "quality": false,                      // false = noisy/motion window (r2 < 0.8 or exp out of range)
+    "brain_state_score": 100              // 0–100, higher = steeper exponent = calmer
+  },
+  "series": [ ... ],                       // per-window history (oldest → newest) for charting
+  "config": { "fit_lo": 2.0, "fit_hi": 75.0, "win_sec": 4.0, "step_sec": 1.0,
+              "highpass_hz": 0.5, "notch_hz": 60.0, "mains_interp": true }
+}
+```
+
+`brain_state_score` maps `exponent 0.4 → 0`, `1.4 → 100` (clamped). Higher = steeper 1/f slope = calmer/more inhibited state — validated for relaxation/meditation monitoring.
 
 ---
 
@@ -172,6 +208,50 @@ Standard neurofeedback ratios derived from band powers:
 | Mean Frequency | Power-weighted centroid: `Σ(fᵢ·Pᵢ) / Σ(Pᵢ)` | Overall frequency balance in Hz |
 | SEF 95% | Lowest band whose cumulative power exceeds 95% of total | Spectral edge frequency |
 | Decaying Exponent β | OLS slope of log(P) vs log(f) across all bands; β = −slope | Aperiodic 1/fᵝ component of PSD |
+
+---
+
+## Aperiodic Exponent Extraction (Backend)
+
+`backend/features.py` implements a full spectral parameterization pipeline that runs server-side on raw EEG waveforms fetched from the AWEAR cloud. This is exposed via `GET /live`.
+
+### Pipeline
+
+```
+raw waveform rows  →  concatenate  →  highpass 0.5 Hz  →  notch 60 Hz
+→  sliding 4-s windows (1-s step)  →  Welch PSD  →  specparam fit  →  exponent array
+→  rolling-median smooth (n=7)  →  JSON response
+```
+
+### Signal configuration
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Sample rate | 256 Hz | AWEAR TP10 channel |
+| Fit range | 2–75 Hz | Avoids DC and aliasing |
+| Window | 4 s / 1 s step | 1024 samples per window |
+| Highpass | 0.5 Hz | 4th-order Butterworth |
+| Notch | 60 Hz (Q=30) | Mains interference |
+
+### Aperiodic fit
+
+Uses [specparam](https://specparam-tools.github.io/) (formerly FOOOF) in `fixed` mode. Falls back to plain OLS log-log regression if specparam is not installed:
+
+```
+log(P) = offset − β · log(f)   over the fit range
+β = aperiodic exponent  (the 1/f slope)
+```
+
+### Interpretation
+
+| `exponent_smoothed` | `brain_state_score` | State |
+|---------------------|---------------------|-------|
+| ≤ 0.4 | 0 | Highly activated / noisy |
+| ~0.8 | ~40 | Moderate arousal |
+| ~1.0 | ~60 | Relaxed wakefulness |
+| ≥ 1.4 | 100 | Deep calm / meditation |
+
+The exponent is **gain-invariant** — AWEAR returns raw ADC counts, so absolute power is meaningless. Only the log-log slope and relative band ratios are exposed.
 
 ---
 
@@ -261,4 +341,5 @@ After recording stops, the mic track is released, the `AudioContext` is closed, 
 - **Animations**: Framer Motion
 - **Icons**: Lucide React
 - **Backend**: Python FastAPI, Uvicorn, WebSockets
+- **Signal processing**: scipy (filtering), specparam (aperiodic/FOOOF fit), numpy
 - **EEG Data**: AWEAR B2B API (live single-channel EEG, TP10)
