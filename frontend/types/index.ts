@@ -43,6 +43,13 @@ export interface SpectralFeatures {
   decayingExponent: number; // β in 1/f^β — aperiodic slope of log-log PSD
 }
 
+export interface PeriodicPeak {
+  cf: number;   // center frequency Hz
+  pw: number;   // power above aperiodic floor (log units)
+  bw: number;   // bandwidth Hz
+  band: string; // delta | theta | alpha | beta | gamma | broadband
+}
+
 export interface TimelinePoint {
   time: string;
   stress: number;

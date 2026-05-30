@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import { Zap } from "lucide-react";
 import { GlowCard } from "./GlowCard";
-import type { EEGDataPoint, BandPowers, PowerRatios, SpectralFeatures } from "@/types";
+import type { EEGDataPoint, BandPowers, PowerRatios, SpectralFeatures, PeriodicPeak } from "@/types";
 
 interface EEGPanelProps {
   eegBuffer: EEGDataPoint[];
@@ -17,6 +17,7 @@ interface EEGPanelProps {
   bandPowers: BandPowers;
   powerRatios: PowerRatios;
   spectralFeatures: SpectralFeatures;
+  periodicPeaks: PeriodicPeak[];
 }
 
 const BANDS = [
@@ -95,6 +96,15 @@ function GaugeArc({ value, color, label, size = 90 }: { value: number; color: st
   );
 }
 
+const BAND_COLORS: Record<string, string> = {
+  delta:     "#60a5fa",
+  theta:     "#22d3ee",
+  alpha:     "#00f5ff",
+  beta:      "#a855f7",
+  gamma:     "#f97316",
+  broadband: "#94a3b8",
+};
+
 const RATIO_CONFIG = [
   {
     key: "thetaBeta" as keyof PowerRatios,
@@ -134,7 +144,7 @@ const RATIO_CONFIG = [
   },
 ] as const;
 
-export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios, spectralFeatures }: EEGPanelProps) {
+export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios, spectralFeatures, periodicPeaks }: EEGPanelProps) {
   const chartData = useMemo(
     () => eegBuffer.map((d, i) => ({ ...d, i })),
     [eegBuffer]
@@ -299,6 +309,45 @@ export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex, bandPowers, pow
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Periodic Peaks */}
+      <div className="border-t border-white/[0.04] pt-3">
+        <div className="text-[9px] text-slate-600 uppercase tracking-widest mb-2">Periodic Peaks</div>
+        {periodicPeaks.length === 0 ? (
+          <div className="text-[10px] text-slate-700 italic">No peaks above 1/f floor</div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {periodicPeaks.map((peak, i) => {
+              const color = BAND_COLORS[peak.band] ?? BAND_COLORS.broadband;
+              const barPct = Math.min(100, (peak.pw / 1.5) * 100);
+              return (
+                <div
+                  key={i}
+                  className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2 flex flex-col gap-1 min-w-[72px]"
+                >
+                  <div className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color, boxShadow: `0 0 4px ${color}` }} />
+                    <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color }}>{peak.band}</span>
+                  </div>
+                  <div className="font-mono text-[12px] font-bold text-slate-200">{peak.cf.toFixed(1)} Hz</div>
+                  <div className="h-0.5 rounded-full overflow-hidden" style={{ background: `${color}20` }}>
+                    <motion.div
+                      className="h-full rounded-full"
+                      style={{ background: color, boxShadow: `0 0 4px ${color}60` }}
+                      animate={{ width: `${Math.max(4, barPct)}%` }}
+                      transition={{ duration: 0.6, ease: "easeOut" }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[9px] text-slate-600">
+                    <span>PW {peak.pw.toFixed(2)}</span>
+                    <span>BW {peak.bw.toFixed(0)} Hz</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </GlowCard>
   );

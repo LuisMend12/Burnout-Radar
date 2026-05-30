@@ -200,6 +200,8 @@ async def live_aperiodic(
     r2 = sl["r2"]
     t0 = dt.datetime.fromisoformat(run[0]["timestamp"].replace("Z", "+00:00"))
 
+    periodic_peaks_all = sl.get("periodic_peaks", [[] for _ in sl["t"]])
+
     series = []
     for i in range(len(sl["t"])):
         e = float(exp[i])
@@ -213,6 +215,7 @@ async def live_aperiodic(
             "alpha_peak_pw":       round(apw_v, 3) if apw_v is not None else None,
             "r2":                  round(float(r2[i]), 3),
             "quality":             bool(float(r2[i]) >= 0.8 and np.isfinite(e) and 0.1 < e < 2.5),
+            "periodic_peaks":      periodic_peaks_all[i] if i < len(periodic_peaks_all) else [],
         })
 
     if not series:
@@ -227,6 +230,7 @@ async def live_aperiodic(
                ("exponent", "exponent_smoothed", "relative_alpha_pct",
                 "alpha_peak_pw", "r2", "quality")}
     current["brain_state_score"] = _aperiodic_score(exp_last)
+    current["periodic_peaks"] = last.get("periodic_peaks", [])
 
     return {
         "participant": pid,

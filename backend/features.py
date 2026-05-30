@@ -25,6 +25,22 @@ except ImportError:
     _HAS_SPECPARAM = False
 
 
+BAND_RANGES: dict = {
+    "delta": (1.0,  4.0),
+    "theta": (4.0,  8.0),
+    "alpha": (8.0, 13.0),
+    "beta":  (13.0, 30.0),
+    "gamma": (30.0, 45.0),
+}
+
+
+def _assign_band(cf: float) -> str:
+    for band, (lo, hi) in BAND_RANGES.items():
+        if lo <= cf < hi:
+            return band
+    return "broadband"
+
+
 @dataclasses.dataclass
 class Config:
     fs: int = 256
@@ -135,8 +151,53 @@ def _rel_alpha(freqs: np.ndarray, psd: np.ndarray) -> float:
     return alpha / total if total > 1e-12 else 0.0
 
 
+def _peaks_from_specparam(fm) -> List[Dict]:
+    """Return periodic peaks [{cf, pw, bw, band}] from a fitted SpectralModel."""
+    out: List[Dict] = []
+    params = getattr(fm, "peak_params_", None)
+    if params is None or len(params) == 0:
+        return out
+    for row in np.atleast_2d(params):
+        cf, pw, bw = float(row[0]), float(row[1]), float(row[2])
+        if np.isfinite(cf) and np.isfinite(pw) and np.isfinite(bw) and pw > 0:
+            out.append({"cf": round(cf, 2), "pw": round(pw, 4), "bw": round(bw, 2), "band": _assign_band(cf)})
+    return out
+
+
+def _peaks_from_ols(
+    freqs: np.ndarray, psd: np.ndarray,
+    exponent: float, offset: float,
+    fit_lo: float, fit_hi: float,
+    min_pw: float = 0.05,
+) -> List[Dict]:
+    """Find local maxima in the log-space residual above the OLS aperiodic floor."""
+    if not (np.isfinite(exponent) and np.isfinite(offset)):
+        return []
+    mask = (freqs >= fit_lo) & (freqs <= fit_hi) & (freqs > 0) & (psd > 0)
+    if mask.sum() < 6:
+        return []
+    f, p = freqs[mask], psd[mask]
+    floor_log = offset - exponent * np.log10(f)
+    residual = np.log10(p) - floor_log
+    n = len(residual)
+    out: List[Dict] = []
+    for i in range(1, n - 1):
+        if residual[i] > residual[i - 1] and residual[i] > residual[i + 1] and residual[i] > min_pw:
+            cf = float(f[i])
+            pw = float(residual[i])
+            half = pw / 2.0
+            l, r = i, i
+            while l > 0 and residual[l - 1] > half:
+                l -= 1
+            while r < n - 1 and residual[r + 1] > half:
+                r += 1
+            bw = max(0.5, float(f[r] - f[l]))
+            out.append({"cf": round(cf, 2), "pw": round(pw, 4), "bw": round(bw, 2), "band": _assign_band(cf)})
+    return out
+
+
 def sliding_features(sig: np.ndarray, cfg: Config) -> Dict:
-    """Slide a window across the signal and compute aperiodic features per window."""
+    """Slide a window across the signal and compute aperiodic + periodic features per window."""
     win_n = int(cfg.win_sec * cfg.fs)
     step_n = int(cfg.step_sec * cfg.fs)
     t_arr: List[float] = []
@@ -144,6 +205,7 @@ def sliding_features(sig: np.ndarray, cfg: Config) -> Dict:
     r2_arr: List[float] = []
     apw_arr: List[Optional[float]] = []
     rel_arr: List[float] = []
+    peaks_arr: List[List[Dict]] = []
 
     for start in range(0, len(sig) - win_n + 1, step_n):
         window = sig[start : start + win_n]
@@ -160,23 +222,28 @@ def sliding_features(sig: np.ndarray, cfg: Config) -> Dict:
                 exp = float(fm.aperiodic_params_[1])
                 offset = float(fm.aperiodic_params_[0])
                 r2 = float(fm.r_squared_)
+                peaks = _peaks_from_specparam(fm)
             except Exception:
                 exp, offset, r2 = _ols_exponent(freqs, psd, cfg.fit_lo, cfg.fit_hi)
+                peaks = _peaks_from_ols(freqs, psd, exp, offset, cfg.fit_lo, cfg.fit_hi)
         else:
             exp, offset, r2 = _ols_exponent(freqs, psd, cfg.fit_lo, cfg.fit_hi)
+            peaks = _peaks_from_ols(freqs, psd, exp, offset, cfg.fit_lo, cfg.fit_hi)
 
         exp_arr.append(exp)
         r2_arr.append(r2)
         apw_arr.append(_alpha_peak_pw(freqs, psd, exp, offset))
         rel_arr.append(_rel_alpha(freqs, psd))
+        peaks_arr.append(peaks)
 
     nan_for_none = [x if x is not None else float("nan") for x in apw_arr]
     return {
-        "t":             np.array(t_arr),
-        "exponent":      np.array(exp_arr),
-        "r2":            np.array(r2_arr),
-        "alpha_peak_pw": np.array(nan_for_none),
-        "bands":         {"rel_alpha": np.array(rel_arr)},
+        "t":              np.array(t_arr),
+        "exponent":       np.array(exp_arr),
+        "r2":             np.array(r2_arr),
+        "alpha_peak_pw":  np.array(nan_for_none),
+        "bands":          {"rel_alpha": np.array(rel_arr)},
+        "periodic_peaks": peaks_arr,
     }
 
 

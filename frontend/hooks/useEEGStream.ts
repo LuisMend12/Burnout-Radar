@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { EEGDataPoint, BandPowers, PowerRatios, SpectralFeatures } from "@/types";
+import type { EEGDataPoint, BandPowers, PowerRatios, SpectralFeatures, PeriodicPeak } from "@/types";
 
 const BUFFER_SIZE = 80;
 
@@ -40,6 +40,7 @@ function computePowerRatios(p: BandPowers): PowerRatios {
 // Center frequencies (Hz) for each simulated band
 const BAND_KEYS = ["delta", "theta", "alpha", "beta", "gamma"] as const;
 const BAND_FREQS: Record<string, number> = { delta: 2, theta: 6, alpha: 10, beta: 20, gamma: 40 };
+const BAND_BWS:   Record<string, number> = { delta: 3, theta: 4, alpha: 5,  beta: 17, gamma: 15 };
 
 function computeSpectralFeatures(p: BandPowers): SpectralFeatures {
   const eps = 1e-8;
@@ -77,6 +78,36 @@ function computeSpectralFeatures(p: BandPowers): SpectralFeatures {
   return { spectralEntropy, meanFrequency, sef95, decayingExponent };
 }
 
+function computePeriodicPeaks(p: BandPowers): PeriodicPeak[] {
+  const eps = 1e-8;
+  const ps  = BAND_KEYS.map((k) => p[k]);
+  const cfs = BAND_KEYS.map((k) => BAND_FREQS[k]);
+
+  // Fit the aperiodic (1/f) component via OLS in log-log space
+  const logF = cfs.map((f) => Math.log(f));
+  const logP  = ps.map((v) => Math.log(v + eps));
+  const n     = logF.length;
+  const sumX  = logF.reduce((a, b) => a + b, 0);
+  const sumY  = logP.reduce((a, b) => a + b, 0);
+  const sumXY = logF.reduce((s, x, i) => s + x * logP[i], 0);
+  const sumX2 = logF.reduce((s, x) => s + x * x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (Math.abs(denom) < 1e-12) return [];
+  const slope     = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+
+  // Periodic power = log-space residual at each band center
+  const peaks: PeriodicPeak[] = [];
+  BAND_KEYS.forEach((band, i) => {
+    const floorLog = intercept + slope * logF[i];
+    const pw = logP[i] - floorLog;
+    if (pw > 0.05) {
+      peaks.push({ cf: cfs[i], pw: +pw.toFixed(4), bw: BAND_BWS[band], band });
+    }
+  });
+  return peaks;
+}
+
 function generateEEGPoint(t: number): EEGDataPoint {
   const n = (amp: number) => (Math.random() - 0.5) * amp;
   const delta = 0.8 * Math.sin(2 * Math.PI * 2.0 * t) + n(0.15);
@@ -109,6 +140,7 @@ export function useEEGStream() {
   const [bandPowers, setBandPowers] = useState<BandPowers>(ZERO_POWERS);
   const [powerRatios, setPowerRatios] = useState<PowerRatios>(ZERO_RATIOS);
   const [spectralFeatures, setSpectralFeatures] = useState<SpectralFeatures>(ZERO_SPECTRAL);
+  const [periodicPeaks, setPeriodicPeaks] = useState<PeriodicPeak[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const tRef = useRef(0);
   const wsRef = useRef<WebSocket | null>(null);
@@ -131,6 +163,7 @@ export function useEEGStream() {
     setBandPowers(seedPowers);
     setPowerRatios(computePowerRatios(seedPowers));
     setSpectralFeatures(computeSpectralFeatures(seedPowers));
+    setPeriodicPeaks(computePeriodicPeaks(seedPowers));
 
     function pushPoint(point: EEGDataPoint) {
       const idx = indexRef.current++;
@@ -144,6 +177,7 @@ export function useEEGStream() {
       setBandPowers(powers);
       setPowerRatios(computePowerRatios(powers));
       setSpectralFeatures(computeSpectralFeatures(powers));
+      setPeriodicPeaks(computePeriodicPeaks(powers));
     }
 
     function startSimulation() {
@@ -198,5 +232,5 @@ export function useEEGStream() {
     };
   }, []);
 
-  return { eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios, spectralFeatures, isConnected };
+  return { eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios, spectralFeatures, periodicPeaks, isConnected };
 }
