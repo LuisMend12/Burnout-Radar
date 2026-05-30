@@ -8,12 +8,14 @@ import {
 } from "recharts";
 import { Zap } from "lucide-react";
 import { GlowCard } from "./GlowCard";
-import type { EEGDataPoint } from "@/types";
+import type { EEGDataPoint, BandPowers, PowerRatios } from "@/types";
 
 interface EEGPanelProps {
   eegBuffer: EEGDataPoint[];
   focusIndex: number;
   calmnessIndex: number;
+  bandPowers: BandPowers;
+  powerRatios: PowerRatios;
 }
 
 const BANDS = [
@@ -92,7 +94,46 @@ function GaugeArc({ value, color, label, size = 90 }: { value: number; color: st
   );
 }
 
-export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex }: EEGPanelProps) {
+const RATIO_CONFIG = [
+  {
+    key: "thetaBeta" as keyof PowerRatios,
+    label: "θ/β",
+    name: "Attention",
+    description: "High = drowsy / distracted",
+    color: "#f97316",
+    max: 3,
+    goodBelow: 1.2,
+  },
+  {
+    key: "alphaBeta" as keyof PowerRatios,
+    label: "α/β",
+    name: "Relaxation",
+    description: "High = calm / low arousal",
+    color: "#22c55e",
+    max: 4,
+    goodAbove: 1.0,
+  },
+  {
+    key: "engagementIndex" as keyof PowerRatios,
+    label: "β/(α+θ)",
+    name: "Engagement",
+    description: "High = active / cognitive load",
+    color: "#00f5ff",
+    max: 1.5,
+    goodAbove: 0.4,
+  },
+  {
+    key: "thetaAlpha" as keyof PowerRatios,
+    label: "θ/α",
+    name: "Fatigue",
+    description: "High = mental fatigue",
+    color: "#a855f7",
+    max: 2,
+    goodBelow: 0.9,
+  },
+] as const;
+
+export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios }: EEGPanelProps) {
   const chartData = useMemo(
     () => eegBuffer.map((d, i) => ({ ...d, i })),
     [eegBuffer]
@@ -146,6 +187,46 @@ export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex }: EEGPanelProps
             ))}
           </LineChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Power Ratios grid */}
+      <div className="grid grid-cols-2 gap-2">
+        {RATIO_CONFIG.map((cfg) => {
+          const value = powerRatios[cfg.key];
+          const pct = Math.min(100, (value / cfg.max) * 100);
+          const isGood = "goodBelow" in cfg ? value < cfg.goodBelow : value > (cfg as { goodAbove: number }).goodAbove;
+          const statusColor = isGood ? "#22c55e" : "#f97316";
+          return (
+            <div
+              key={cfg.key}
+              className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 flex flex-col gap-1.5"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-[11px] font-bold" style={{ color: cfg.color }}>
+                    {cfg.label}
+                  </span>
+                  <span className="text-[10px] text-slate-500">{cfg.name}</span>
+                </div>
+                <span className="font-mono text-[11px] font-semibold text-slate-200">
+                  {value.toFixed(2)}
+                </span>
+              </div>
+              <div className="h-1 rounded-full overflow-hidden" style={{ background: `${cfg.color}18` }}>
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ background: cfg.color, boxShadow: `0 0 4px ${cfg.color}60` }}
+                  animate={{ width: `${pct}%` }}
+                  transition={{ duration: 0.5, ease: "easeOut" }}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] text-slate-600">{cfg.description}</span>
+                <div className="w-1.5 h-1.5 rounded-full" style={{ background: statusColor, boxShadow: `0 0 4px ${statusColor}` }} />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Frequency band info + Gauges */}

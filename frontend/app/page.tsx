@@ -14,7 +14,7 @@ import type { Metrics } from "@/types";
 
 export default function Dashboard() {
   const { metrics, timeline, isConnected, triggerAnalysis } = useMetrics();
-  const { eegBuffer, focusIndex, calmnessIndex } = useEEGStream();
+  const { eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios } = useEEGStream();
 
   return (
     <>
@@ -44,6 +44,8 @@ export default function Dashboard() {
             eegBuffer={eegBuffer}
             focusIndex={focusIndex}
             calmnessIndex={calmnessIndex}
+            bandPowers={bandPowers}
+            powerRatios={powerRatios}
           />
         </section>
 

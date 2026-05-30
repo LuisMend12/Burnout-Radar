@@ -21,6 +21,21 @@ export interface EEGDataPoint {
   index?: number;
 }
 
+export interface BandPowers {
+  delta: number;
+  theta: number;
+  alpha: number;
+  beta: number;
+  gamma: number;
+}
+
+export interface PowerRatios {
+  thetaBeta: number;        // θ/β  — attention/drowsiness marker
+  alphaBeta: number;        // α/β  — relaxation vs active thinking
+  engagementIndex: number;  // β/(α+θ) — cognitive engagement
+  thetaAlpha: number;       // θ/α  — mental fatigue indicator
+}
+
 export interface TimelinePoint {
   time: string;
   stress: number;

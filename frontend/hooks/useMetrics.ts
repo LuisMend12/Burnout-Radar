@@ -5,7 +5,11 @@ import type { Metrics, TimelinePoint } from "@/types";
 import { generateDefaultMetrics, computeBurnoutScore, getBurnoutLevel, formatTime } from "@/lib/utils";
 import { fetchTimeline } from "@/lib/api";
 
-const TIMELINE_MAX = 90; // 60 historical + 30 live points
+const TIMELINE_MAX = 3600; // 1 hour at 2 s/tick — retain full session for labeling
+
+// Session clock anchored to 13:57:00 — every tick advances 2 s from this base
+const SESSION_START = new Date();
+SESSION_START.setHours(13, 57, 0, 0);
 
 function driftValue(v: number, speed = 1.2, min = 8, max = 92): number {
   return Math.max(min, Math.min(max, v + (Math.random() - 0.5) * speed * 2));
@@ -30,15 +34,19 @@ function simulateMetrics(prev: Metrics): Metrics {
   };
 }
 
-function metricsToTimelinePoint(m: Metrics): TimelinePoint {
+function metricsToTimelinePoint(m: Metrics, date: Date): TimelinePoint {
   return {
-    time: formatTime(new Date()),
+    time: formatTime(date),
     stress: Math.round(m.stress),
     focus: Math.round(m.focus),
     fatigue: Math.round(m.fatigue),
     calmness: Math.round(m.calmness),
     burnout: Math.round(m.burnout_score),
   };
+}
+
+function sessionDate(tick: number): Date {
+  return new Date(SESSION_START.getTime() + tick * 2000);
 }
 
 export function useMetrics() {
@@ -49,10 +57,12 @@ export function useMetrics() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const metricsRef = useRef(metrics);
   metricsRef.current = metrics;
+  const tickRef = useRef(0);
 
   const pushTimeline = useCallback((m: Metrics) => {
+    const date = sessionDate(tickRef.current++);
     setTimeline((prev) => {
-      const next = [...prev, metricsToTimelinePoint(m)];
+      const next = [...prev, metricsToTimelinePoint(m, date)];
       return next.length > TIMELINE_MAX ? next.slice(-TIMELINE_MAX) : next;
     });
   }, []);
@@ -128,11 +138,12 @@ export function useMetrics() {
         setTimeline(history);
       } else {
         const initial = generateDefaultMetrics();
-        const seed: TimelinePoint[] = Array.from({ length: 10 }, (_, i) => {
+        const SEED_COUNT = 10;
+        const seed: TimelinePoint[] = Array.from({ length: SEED_COUNT }, (_, i) => {
           const t = simulateMetrics(initial);
-          const d = new Date(Date.now() - (9 - i) * 2000);
-          return { ...metricsToTimelinePoint(t), time: formatTime(d) };
+          return metricsToTimelinePoint(t, sessionDate(i));
         });
+        tickRef.current = SEED_COUNT;
         setTimeline(seed);
       }
     });
