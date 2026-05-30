@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { EEGDataPoint, BandPowers, PowerRatios } from "@/types";
+import type { EEGDataPoint, BandPowers, PowerRatios, SpectralFeatures } from "@/types";
 
 const BUFFER_SIZE = 80;
 
@@ -37,6 +37,46 @@ function computePowerRatios(p: BandPowers): PowerRatios {
   };
 }
 
+// Center frequencies (Hz) for each simulated band
+const BAND_KEYS = ["delta", "theta", "alpha", "beta", "gamma"] as const;
+const BAND_FREQS: Record<string, number> = { delta: 2, theta: 6, alpha: 10, beta: 20, gamma: 40 };
+
+function computeSpectralFeatures(p: BandPowers): SpectralFeatures {
+  const eps = 1e-8;
+  const ps = BAND_KEYS.map((k) => p[k]);
+  const fs = BAND_KEYS.map((k) => BAND_FREQS[k]);
+  const total = ps.reduce((a, b) => a + b, 0) + eps;
+
+  // Normalized Shannon entropy
+  const probs = ps.map((v) => (v + eps) / total);
+  const entropy = -probs.reduce((s, prob) => s + prob * Math.log(prob), 0);
+  const spectralEntropy = +(entropy / Math.log(BAND_KEYS.length)).toFixed(4);
+
+  // Power-weighted mean frequency
+  const meanFrequency = +(fs.reduce((s, f, i) => s + f * probs[i], 0)).toFixed(2);
+
+  // Spectral edge 95 — lowest band whose cumulative power exceeds 95% of total
+  let cumSum = 0;
+  let sef95 = fs[fs.length - 1];
+  for (let i = 0; i < ps.length; i++) {
+    cumSum += ps[i];
+    if (cumSum / total >= 0.95) { sef95 = fs[i]; break; }
+  }
+
+  // Decaying exponent β via log-log OLS: log(P) = c − β·log(f)
+  const logF = fs.map((f) => Math.log(f));
+  const logP = ps.map((v) => Math.log(v + eps));
+  const n = logF.length;
+  const sumX  = logF.reduce((a, b) => a + b, 0);
+  const sumY  = logP.reduce((a, b) => a + b, 0);
+  const sumXY = logF.reduce((s, x, i) => s + x * logP[i], 0);
+  const sumX2 = logF.reduce((s, x) => s + x * x, 0);
+  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+  const decayingExponent = +(-slope).toFixed(3);
+
+  return { spectralEntropy, meanFrequency, sef95, decayingExponent };
+}
+
 function generateEEGPoint(t: number): EEGDataPoint {
   const n = (amp: number) => (Math.random() - 0.5) * amp;
   const delta = 0.8 * Math.sin(2 * Math.PI * 2.0 * t) + n(0.15);
@@ -60,6 +100,7 @@ function generateEEGPoint(t: number): EEGDataPoint {
 
 const ZERO_POWERS: BandPowers = { delta: 0, theta: 0, alpha: 0, beta: 0, gamma: 0 };
 const ZERO_RATIOS: PowerRatios = { thetaBeta: 0, alphaBeta: 0, engagementIndex: 0, thetaAlpha: 0 };
+const ZERO_SPECTRAL: SpectralFeatures = { spectralEntropy: 0, meanFrequency: 0, sef95: 0, decayingExponent: 0 };
 
 export function useEEGStream() {
   const [eegBuffer, setEEGBuffer] = useState<EEGDataPoint[]>([]);
@@ -67,6 +108,7 @@ export function useEEGStream() {
   const [calmnessIndex, setCalmnessIndex] = useState(58);
   const [bandPowers, setBandPowers] = useState<BandPowers>(ZERO_POWERS);
   const [powerRatios, setPowerRatios] = useState<PowerRatios>(ZERO_RATIOS);
+  const [spectralFeatures, setSpectralFeatures] = useState<SpectralFeatures>(ZERO_SPECTRAL);
   const [isConnected, setIsConnected] = useState(false);
   const tRef = useRef(0);
   const wsRef = useRef<WebSocket | null>(null);
@@ -88,6 +130,7 @@ export function useEEGStream() {
     const seedPowers = computeBandPowers(seed);
     setBandPowers(seedPowers);
     setPowerRatios(computePowerRatios(seedPowers));
+    setSpectralFeatures(computeSpectralFeatures(seedPowers));
 
     function pushPoint(point: EEGDataPoint) {
       const idx = indexRef.current++;
@@ -100,6 +143,7 @@ export function useEEGStream() {
       const powers = computeBandPowers(bufferRef.current);
       setBandPowers(powers);
       setPowerRatios(computePowerRatios(powers));
+      setSpectralFeatures(computeSpectralFeatures(powers));
     }
 
     function startSimulation() {
@@ -154,5 +198,5 @@ export function useEEGStream() {
     };
   }, []);
 
-  return { eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios, isConnected };
+  return { eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios, spectralFeatures, isConnected };
 }

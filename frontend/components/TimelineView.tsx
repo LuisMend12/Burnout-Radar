@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, Brush,
+  CartesianGrid, Tooltip, Legend,
 } from "recharts";
-import { Clock, ChevronsRight } from "lucide-react";
+import { Clock } from "lucide-react";
 import { GlowCard } from "./GlowCard";
-import { cn } from "@/lib/utils";
 import type { TimelinePoint } from "@/types";
 
 interface TimelineViewProps {
@@ -59,33 +57,10 @@ function CustomLegend({ payload }: any) {
   );
 }
 
-interface BrushRange {
-  startIndex: number;
-  endIndex: number;
-}
-
 export function TimelineView({ data }: TimelineViewProps) {
-  const [followLive, setFollowLive] = useState(true);
-  const [brushRange, setBrushRange] = useState<BrushRange>({ startIndex: 0, endIndex: 0 });
-
-  // Keep brush tracking latest data when in Follow Live mode
-  useEffect(() => {
-    if (followLive && data.length > 0) {
-      setBrushRange({ startIndex: 0, endIndex: data.length - 1 });
-    }
-  }, [data.length, followLive]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function handleBrushChange(range: any) {
-    if (range && range.startIndex != null && range.endIndex != null) {
-      setFollowLive(false);
-      setBrushRange({ startIndex: range.startIndex, endIndex: range.endIndex });
-    }
-  }
-
-  const spanLabel = data.length > 0
+  const spanLabel = data.length > 1
     ? `${data[0].time} – ${data[data.length - 1].time}`
-    : "—";
+    : data.length === 1 ? data[0].time : "—";
 
   return (
     <GlowCard variant="cyan" delay={0.3} className="p-5 flex flex-col gap-4 h-full">
@@ -100,28 +75,17 @@ export function TimelineView({ data }: TimelineViewProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Point count */}
           <span className="text-[10px] text-slate-600 bg-white/5 px-2 py-0.5 rounded-full border border-white/[0.06]">
             {data.length} pts
           </span>
-          {/* Follow Live toggle */}
-          <button
-            onClick={() => setFollowLive(true)}
-            className={cn(
-              "flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all duration-200",
-              followLive
-                ? "bg-cyan-neon/10 border-cyan-neon/30 text-cyan-neon"
-                : "bg-white/5 border-white/10 text-slate-500 hover:text-slate-300 hover:border-white/20"
-            )}
-          >
-            <div className={cn("w-1.5 h-1.5 rounded-full", followLive ? "bg-cyan-neon pulse-dot" : "bg-slate-600")} />
-            {followLive ? "LIVE" : "Follow Live"}
-            {!followLive && <ChevronsRight className="w-3 h-3" />}
-          </button>
+          <div className="flex items-center gap-1.5 text-[10px] text-cyan-neon font-semibold">
+            <div className="w-1.5 h-1.5 rounded-full bg-cyan-neon pulse-dot" />
+            LIVE
+          </div>
         </div>
       </div>
 
-      <div style={{ height: 280 }}>
+      <div style={{ height: 240 }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
             <defs>
@@ -153,17 +117,6 @@ export function TimelineView({ data }: TimelineViewProps) {
             />
             <Tooltip content={<CustomTooltip />} />
             <Legend content={<CustomLegend />} />
-            <Brush
-              dataKey="time"
-              startIndex={brushRange.startIndex}
-              endIndex={brushRange.endIndex}
-              onChange={handleBrushChange}
-              height={28}
-              stroke="rgba(0,245,255,0.15)"
-              fill="rgba(0,245,255,0.03)"
-              travellerWidth={7}
-              tick={{ fill: "#475569", fontSize: 9, fontFamily: "var(--font-inter)" }}
-            />
             {SERIES.map(({ key, color, gradId }) => (
               <Area
                 key={key}

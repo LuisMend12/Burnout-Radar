@@ -36,6 +36,13 @@ export interface PowerRatios {
   thetaAlpha: number;       // θ/α  — mental fatigue indicator
 }
 
+export interface SpectralFeatures {
+  spectralEntropy: number;  // 0-1, normalized Shannon entropy over band powers
+  meanFrequency: number;    // Hz, power-weighted centroid
+  sef95: number;            // Hz, frequency below which 95% of power lies
+  decayingExponent: number; // β in 1/f^β — aperiodic slope of log-log PSD
+}
+
 export interface TimelinePoint {
   time: string;
   stress: number;

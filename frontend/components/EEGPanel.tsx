@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import { Zap } from "lucide-react";
 import { GlowCard } from "./GlowCard";
-import type { EEGDataPoint, BandPowers, PowerRatios } from "@/types";
+import type { EEGDataPoint, BandPowers, PowerRatios, SpectralFeatures } from "@/types";
 
 interface EEGPanelProps {
   eegBuffer: EEGDataPoint[];
@@ -16,6 +16,7 @@ interface EEGPanelProps {
   calmnessIndex: number;
   bandPowers: BandPowers;
   powerRatios: PowerRatios;
+  spectralFeatures: SpectralFeatures;
 }
 
 const BANDS = [
@@ -133,7 +134,7 @@ const RATIO_CONFIG = [
   },
 ] as const;
 
-export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios }: EEGPanelProps) {
+export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex, bandPowers, powerRatios, spectralFeatures }: EEGPanelProps) {
   const chartData = useMemo(
     () => eegBuffer.map((d, i) => ({ ...d, i })),
     [eegBuffer]
@@ -249,21 +250,55 @@ export function EEGPanel({ eegBuffer, focusIndex, calmnessIndex, bandPowers, pow
         </div>
       </div>
 
-      {/* Signal quality bar */}
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] text-slate-600 uppercase tracking-widest">Signal</span>
-        <div className="flex gap-0.5 items-end h-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <motion.div
-              key={i}
-              className="w-1 rounded-sm bg-purple-neon/60"
-              style={{ height: `${40 + i * 8}%` }}
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.5, delay: i * 0.1, repeat: Infinity }}
-            />
+      {/* Spectral features */}
+      <div className="border-t border-white/[0.04] pt-3">
+        <div className="text-[9px] text-slate-600 uppercase tracking-widest mb-2">Spectral Features</div>
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            {
+              label: "Entropy",
+              value: spectralFeatures.spectralEntropy.toFixed(3),
+              sub: "0–1",
+              color: "#00f5ff",
+              bar: spectralFeatures.spectralEntropy,
+            },
+            {
+              label: "Mean Freq",
+              value: `${spectralFeatures.meanFrequency.toFixed(1)} Hz`,
+              sub: "centroid",
+              color: "#a855f7",
+              bar: spectralFeatures.meanFrequency / 40,
+            },
+            {
+              label: "SEF 95%",
+              value: `${spectralFeatures.sef95} Hz`,
+              sub: "edge",
+              color: "#22d3ee",
+              bar: spectralFeatures.sef95 / 40,
+            },
+            {
+              label: "1/f β",
+              value: spectralFeatures.decayingExponent.toFixed(3),
+              sub: "exponent",
+              color: "#f97316",
+              bar: Math.min(1, Math.abs(spectralFeatures.decayingExponent) / 3),
+            },
+          ].map(({ label, value, sub, color, bar }) => (
+            <div key={label} className="flex flex-col gap-1">
+              <div className="text-[9px] text-slate-600 uppercase tracking-wider">{label}</div>
+              <div className="font-mono text-[11px] font-semibold" style={{ color }}>{value}</div>
+              <div className="h-0.5 rounded-full overflow-hidden" style={{ background: `${color}18` }}>
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ background: color }}
+                  animate={{ width: `${Math.max(2, Math.min(100, bar * 100))}%` }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                />
+              </div>
+              <div className="text-[9px] text-slate-700">{sub}</div>
+            </div>
           ))}
         </div>
-        <span className="text-[10px] text-purple-neon ml-1">Optimal</span>
       </div>
     </GlowCard>
   );
