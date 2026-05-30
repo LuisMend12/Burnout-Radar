@@ -1,0 +1,13 @@
+# AWEAR aperiodic extraction — Python 3.12
+# Core extraction + API (needed to run server.py):
+requests==2.34.2
+numpy==2.4.6
+scipy==1.17.1
+specparam==2.0.0rc6
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+
+# Analysis / visualization scripts only (not needed for the live API):
+matplotlib==3.10.9
+pandas==3.0.3
+openpyxl==3.1.5

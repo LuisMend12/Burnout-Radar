@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AWEAR — Live Aperiodic Exponent</title>
+<style>
+  :root{--fg:#eaf0ff;--muted:#8a97b8}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;color:var(--fg);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       background:radial-gradient(120% 120% at 50% -10%, #182038, #0b1020 60%);padding:26px 30px}
+  h1{margin:0;font-size:21px}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .bar{display:flex;gap:10px;align-items:center;margin:16px 0}
+  input{background:#121a33;border:1px solid #233056;color:var(--fg);border-radius:8px;padding:7px 10px;font-size:13px}
+  .pill{font-size:12px;color:var(--muted);margin-left:auto}
+  .grid{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px}
+  .stat{background:#121a33;border:1px solid #233056;border-radius:14px;padding:16px 20px;min-width:190px}
+  .stat .k{color:var(--muted);font-size:13px}
+  .stat .v{font-size:40px;font-weight:750;margin-top:4px}
+  .stat .u{color:var(--muted);font-size:12px;margin-top:2px}
+  svg{margin-top:22px;background:#0e1530;border:1px solid #1c2746;border-radius:12px}
+  .warn{color:#e8943a}
+</style>
+</head>
+<body>
+  <h1>AWEAR · Live Aperiodic Exponent</h1>
+  <div class="sub">reference client — polls the extraction API every 3 s · the AWEAR cloud is ~3 min behind real time</div>
+  <div class="bar">
+    <label class="sub">API</label><input id="api" value="http://127.0.0.1:8000" size="26"/>
+    <label class="sub">participant</label><input id="pid" placeholder="(auto)" size="12"/>
+    <span class="pill" id="status">…</span>
+  </div>
+
+  <div class="grid">
+    <div class="stat"><div class="k">1/f exponent (live)</div><div class="v" id="exp">—</div><div class="u" id="expU">steeper = calmer</div></div>
+    <div class="stat"><div class="k">Brain-state score</div><div class="v" id="score">—</div><div class="u">0 active · 100 calm</div></div>
+    <div class="stat"><div class="k">Relative alpha</div><div class="v" id="alpha">—</div><div class="u">8–12 Hz</div></div>
+    <div class="stat"><div class="k">Data as of</div><div class="v" id="lag" style="font-size:26px">—</div><div class="u" id="asof"></div></div>
+  </div>
+
+  <svg id="spark" width="900" height="220" viewBox="0 0 900 220"></svg>
+
+<script>
+const $=id=>document.getElementById(id);
+function qp(k){return new URLSearchParams(location.search).get(k);}
+if(qp('api')) $('api').value=qp('api'); if(qp('participant')) $('pid').value=qp('participant');
+
+function drawSpark(series){
+  const svg=$('spark'); svg.innerHTML='';
+  const NS='http://www.w3.org/2000/svg', W=900,H=220,pad=24;
+  const pts=series.filter(d=>d.quality).map(d=>d.exponent_smoothed);
+  if(pts.length<2) return;
+  const lo=Math.min(...pts,0.3), hi=Math.max(...pts,1.6);
+  const x=i=>pad+i/(pts.length-1)*(W-2*pad), y=v=>H-pad-(v-lo)/(hi-lo)*(H-2*pad);
+  // baseline gridlines at exponent 0.5/1.0/1.5
+  [0.5,1.0,1.5].forEach(g=>{ if(g<lo||g>hi)return; const ln=document.createElementNS(NS,'line');
+    ln.setAttribute('x1',pad);ln.setAttribute('x2',W-pad);ln.setAttribute('y1',y(g));ln.setAttribute('y2',y(g));
+    ln.setAttribute('stroke','#243056');ln.setAttribute('stroke-width','1'); svg.appendChild(ln);
+    const t=document.createElementNS(NS,'text');t.setAttribute('x',6);t.setAttribute('y',y(g)+4);
+    t.setAttribute('fill','#5b6aa0');t.setAttribute('font-size','11');t.textContent=g.toFixed(1);svg.appendChild(t);});
+  const path=document.createElementNS(NS,'polyline');
+  path.setAttribute('points',pts.map((v,i)=>x(i)+','+y(v)).join(' '));
+  path.setAttribute('fill','none');path.setAttribute('stroke','#3fa45b');path.setAttribute('stroke-width','2.5');
+  svg.appendChild(path);
+  const dot=document.createElementNS(NS,'circle');dot.setAttribute('cx',x(pts.length-1));dot.setAttribute('cy',y(pts[pts.length-1]));
+  dot.setAttribute('r',5);dot.setAttribute('fill','#eaf0ff');svg.appendChild(dot);
+}
+
+async function tick(){
+  const api=$('api').value.replace(/\/$/,''); const pid=$('pid').value.trim();
+  const url=api+'/live?lookback=6'+(pid?'&participant='+encodeURIComponent(pid):'');
+  try{
+    const r=await fetch(url); const d=await r.json();
+    if(d.error){ $('status').textContent='⚠ '+d.error; $('status').className='pill warn'; return; }
+    $('status').textContent='● connected · '+d.participant; $('status').className='pill';
+    const c=d.current;
+    $('exp').textContent=c.exponent_smoothed.toFixed(2);
+    $('score').textContent=c.brain_state_score;
+    $('alpha').textContent=c.relative_alpha_pct.toFixed(0)+'%';
+    const secs=Math.round(d.lag_seconds);
+    $('lag').textContent=(secs<120?secs+'s':(secs/60|0)+'m')+' ago';
+    $('asof').textContent=new Date(d.as_of).toLocaleTimeString();
+    $('expU').textContent = c.quality?'steeper = calmer':'signal noisy';
+    drawSpark(d.series);
+  }catch(e){ $('status').textContent='⚠ cannot reach API ('+api+')'; $('status').className='pill warn'; }
+}
+tick(); setInterval(tick, 3000);
+</script>
+</body>
+</html>

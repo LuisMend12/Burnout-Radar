@@ -1,10 +1,12 @@
 import asyncio
+import datetime as dt
 import os
 import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
+import numpy as np
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -16,6 +18,19 @@ from mock_data import (
     get_streaming_metrics,
 )
 import awear_client
+
+try:
+    import features as _F
+    _HAS_FEATURES = True
+except ImportError:
+    _HAS_FEATURES = False
+
+# brain-state score: exponent 0.4 → 0, 1.4 → 100 (higher = steeper = calmer)
+_SCORE_LO, _SCORE_HI = 0.4, 1.4
+
+
+def _aperiodic_score(exp: float) -> int:
+    return int(round(float(np.clip((exp - _SCORE_LO) / (_SCORE_HI - _SCORE_LO) * 100, 0, 100))))
 
 # Load .env from project root (one level up from backend/)
 _env_path = Path(__file__).parent.parent / ".env"
@@ -114,6 +129,119 @@ async def get_timeline(minutes: int = 60):
 async def get_recommendations_endpoint():
     recs = get_recommendations(_current_metrics)
     return {"recommendations": recs, "generated_at": time.time()}
+
+
+@app.get("/members")
+async def get_members():
+    """List AWEAR participants registered to this API key."""
+    if not _api_key:
+        return {"error": "no API key configured"}
+    try:
+        import requests as _req
+        r = _req.get(
+            "https://awear-b2b-2026.vercel.app/api/v1/members",
+            headers={"Authorization": f"Bearer {_api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@app.get("/live")
+async def live_aperiodic(
+    lookback: float = Query(6.0, description="Minutes of EEG history to pull"),
+    participant: Optional[str] = Query(None, description="Participant ID; auto-picks if omitted"),
+):
+    """
+    Latest aperiodic (1/f) features for the active participant.
+
+    Returns exponent_smoothed (brain-state marker), brain_state_score (0-100),
+    relative_alpha_pct, data freshness (as_of / lag_seconds), and a series[]
+    of recent windows for charting. Compatible with the handoff HANDOFF.md spec.
+    """
+    if not _api_key:
+        return {"error": "no API key configured — set API_KEY in .env"}
+    if not _HAS_FEATURES:
+        return {"error": "spectral features unavailable — install scipy and specparam"}
+
+    pid, rows = awear_client.get_raw_records(lookback_minutes=lookback, participant=participant)
+    if pid is None:
+        return {"error": "no members joined to your study code"}
+    if not rows:
+        return {"participant": pid, "as_of": None, "error": "no data in window"}
+
+    cfg = _F.Config()
+    runs = _F.contiguous_runs(rows)
+    run = runs[-1] if runs and len(runs[-1]) >= cfg.win_sec else rows
+
+    sig, _ = _F.rows_to_signal(run, cfg.fs)
+    sig = _F.preprocess(sig, cfg)
+    sl = _F.sliding_features(sig, cfg)
+
+    last_row = rows[-1]
+    as_of = dt.datetime.fromisoformat(last_row["timestamp"].replace("Z", "+00:00"))
+    lag = (dt.datetime.now(dt.timezone.utc) - as_of).total_seconds()
+
+    if not sl["exponent"].size:
+        return {
+            "participant": pid,
+            "as_of": as_of.isoformat(),
+            "lag_seconds": round(lag, 1),
+            "error": "not enough clean signal yet",
+        }
+
+    exp = sl["exponent"]
+    exp_s = _F.smooth(exp, 7)
+    rel = sl["bands"]["rel_alpha"] * 100.0
+    apw = sl["alpha_peak_pw"]
+    r2 = sl["r2"]
+    t0 = dt.datetime.fromisoformat(run[0]["timestamp"].replace("Z", "+00:00"))
+
+    series = []
+    for i in range(len(sl["t"])):
+        e = float(exp[i])
+        es = float(exp_s[i])
+        apw_v = float(apw[i]) if np.isfinite(apw[i]) else None
+        series.append({
+            "t": (t0 + dt.timedelta(seconds=float(sl["t"][i]))).isoformat(),
+            "exponent":            round(e, 3)  if np.isfinite(e)  else None,
+            "exponent_smoothed":   round(es, 3) if np.isfinite(es) else None,
+            "relative_alpha_pct":  round(float(rel[i]), 1),
+            "alpha_peak_pw":       round(apw_v, 3) if apw_v is not None else None,
+            "r2":                  round(float(r2[i]), 3),
+            "quality":             bool(float(r2[i]) >= 0.8 and np.isfinite(e) and 0.1 < e < 2.5),
+        })
+
+    if not series:
+        return {
+            "participant": pid, "as_of": as_of.isoformat(),
+            "lag_seconds": round(lag, 1), "error": "no clean windows computed",
+        }
+
+    last = series[-1]
+    exp_last = last["exponent_smoothed"] or last["exponent"] or 0.0
+    current = {k: last[k] for k in
+               ("exponent", "exponent_smoothed", "relative_alpha_pct",
+                "alpha_peak_pw", "r2", "quality")}
+    current["brain_state_score"] = _aperiodic_score(exp_last)
+
+    return {
+        "participant": pid,
+        "device": last_row.get("device_id"),
+        "fs": cfg.fs,
+        "as_of": as_of.isoformat(),
+        "lag_seconds": round(lag, 1),
+        "current": current,
+        "series": series,
+        "config": {
+            "fit_lo": cfg.fit_lo, "fit_hi": cfg.fit_hi,
+            "win_sec": cfg.win_sec, "step_sec": cfg.step_sec,
+            "highpass_hz": cfg.highpass_hz, "notch_hz": cfg.notch_hz,
+            "mains_interp": cfg.mains_interp,
+        },
+    }
 
 
 @app.websocket("/eeg_stream")

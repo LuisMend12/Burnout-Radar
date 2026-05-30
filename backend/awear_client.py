@@ -306,6 +306,28 @@ def get_live_bands() -> Optional[Dict[str, float]]:
     return smoothed
 
 
+def get_raw_records(
+    lookback_minutes: float = 6.0, participant: Optional[str] = None
+) -> tuple[Optional[str], List[Dict]]:
+    """
+    Fetch raw EEG records (with 'timestamp' and 'waveform' fields) for the
+    given lookback window. Used by the /live aperiodic endpoint.
+    Returns (participant_id, rows).
+    """
+    pid = participant or _get_participant()
+    if not pid:
+        return None, []
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(minutes=lookback_minutes)
+    rows = _fetch_records_window(
+        pid,
+        start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        limit=500,
+    )
+    return pid, rows
+
+
 def get_metrics() -> Optional[Dict]:
     bands = get_live_bands()
     if bands is None:
