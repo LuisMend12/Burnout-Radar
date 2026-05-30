@@ -1,0 +1,56 @@
+export interface Metrics {
+  stress: number;
+  calmness: number;
+  focus: number;
+  fatigue: number;
+  burnout_score: number;
+  mental_readiness: number;
+  burnout_level: "Low" | "Moderate" | "High" | "Critical";
+  timestamp: number;
+}
+
+export interface EEGDataPoint {
+  delta: number;
+  theta: number;
+  alpha: number;
+  beta: number;
+  gamma: number;
+  focus_index: number;
+  calmness_index: number;
+  timestamp: number;
+  index?: number;
+}
+
+export interface TimelinePoint {
+  time: string;
+  stress: number;
+  focus: number;
+  fatigue: number;
+  calmness: number;
+  burnout: number;
+}
+
+export interface Recommendation {
+  type: string;
+  priority: "critical" | "high" | "medium" | "low";
+  title: string;
+  description: string;
+  duration: string;
+  icon: string;
+}
+
+export type MetricKey = "stress" | "calmness" | "focus" | "fatigue" | "burnout_score" | "mental_readiness";
+
+export interface VoiceAnalysisResult {
+  metrics: Metrics;
+  analysis: {
+    pitch_variation_hz: number;
+    speech_rate_wpm: number;
+    voice_energy_db: number;
+    tremor_index: number;
+    jitter_percent: number;
+    shimmer_percent: number;
+    confidence_score: number;
+    processing_time_ms: number;
+  };
+}
