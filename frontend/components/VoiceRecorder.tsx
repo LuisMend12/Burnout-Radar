@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Upload, Loader2, CheckCircle, AlertCircle, Waveform } from "lucide-react";
+import { Mic, MicOff, Upload, Loader2, CheckCircle, AlertCircle, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GlowCard } from "./GlowCard";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
@@ -229,7 +229,7 @@ export function VoiceRecorder({ onAnalyze }: VoiceRecorderProps) {
                 </>
               ) : (
                 <>
-                  <Waveform className="w-3.5 h-3.5 text-cyan-neon" />
+                  <Activity className="w-3.5 h-3.5 text-cyan-neon" />
                   Analyze
                 </>
               )}

@@ -10,7 +10,7 @@ import { fetchRecommendations } from "@/lib/api";
 import type { Metrics, Recommendation } from "@/types";
 import { cn } from "@/lib/utils";
 
-const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
   Wind, Coffee, Brain, AlertTriangle, Headphones, Zap,
 };
 

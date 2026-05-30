@@ -8,7 +8,7 @@ import {
 import { cn, getMetricStatus } from "@/lib/utils";
 import { GlowCard } from "./GlowCard";
 
-const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+const ICONS: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
   stress: Activity,
   calmness: Heart,
   focus: Target,
